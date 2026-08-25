@@ -14,14 +14,21 @@ namespace GalacticScale
         //    Makes planets near huge stars reachable by ship.
         // 3. Fix planet clearance altitude (5000.0) to scale with planet radius
         // 4. Fix warp activation distance (25000000.0 = 5000²) to scale with planet radius
-        // 5. Adjust star radius for pathing calculations to fix issues with large stars
-        // - Updated pattern matching to be more robust and find the correct insertion points
+        // 5. Cap star uRadius for pathing/avoidance so the exclusion bubble around giant stars
+        //    never exceeds the vanilla envelope. Planet radii are far below the cap, so every
+        //    non-star load is untouched.
         // [HarmonyDebug]
         [HarmonyTranspiler]
         [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.InternalTickRemote))]
         public static IEnumerable<CodeInstruction> InternalTickRemoteTranspiler(IEnumerable<CodeInstruction> instructions, ILGenerator il)
         {
-            var codeMatcher = new CodeMatcher(instructions, il).MatchForward(false, new CodeMatch(op => op.opcode == OpCodes.Ldc_I4_S && op.OperandIs(10))); // Search for ldc.i4.s 10
+            // Only the two obstacle-scan loop bounds (ldc.i4.s 10 followed by add) may grow to 100.
+            // The method also uses ldc.i4.s 10 for the far-ship steering throttle (num23 = 10,
+            // stored via stloc); replacing that one made distant vessels update their steering and
+            // obstacle avoidance only every 100 ticks, so they flew blind between corrections.
+            var codeMatcher = new CodeMatcher(instructions, il).MatchForward(false,
+                new CodeMatch(op => op.opcode == OpCodes.Ldc_I4_S && op.OperandIs(10)),
+                new CodeMatch(OpCodes.Add));
 
             if (codeMatcher.IsInvalid)
             {
@@ -29,10 +36,32 @@ namespace GalacticScale
                 return instructions;
             }
 
-            instructions = codeMatcher.Repeat(z => z // Repeat for all occurences 
+            instructions = codeMatcher.Repeat(z => z // Repeat for all occurences
                     .Set(OpCodes.Ldc_I4_S, 100)) // Replace operand with 100
                 .InstructionEnumeration();
             return instructions;
+        }
+
+        [HarmonyTranspiler]
+        [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.InternalTickRemote))]
+        public static IEnumerable<CodeInstruction> InternalTickRemoteTranspiler5_CapStarRadius(IEnumerable<CodeInstruction> instructions)
+        {
+            // Same treatment the DF seekers/relays got in DarkFogRadius: every AstroData.uRadius
+            // read in this method feeds obstacle detection, the star exclusion bubble, or approach
+            // shaping. Cap it at the vanilla max star physics radius so GS2 giant stars do not
+            // project avoidance bubbles that swallow whole planetary orbits (vessels endlessly
+            // circling the bubble edge, unable to reach stations). All planet radii sit far below
+            // the cap, so approach and landing on planets keep the real radius.
+            var radiusField = AccessTools.Field(typeof(AstroData), nameof(AstroData.uRadius));
+            var capMethod = AccessTools.Method(typeof(DarkFogRadius), nameof(DarkFogRadius.CapStarRadiusToVanillaMax));
+            foreach (var code in instructions)
+            {
+                yield return code;
+                if (code.LoadsField(radiusField))
+                {
+                    yield return new CodeInstruction(OpCodes.Call, capMethod);
+                }
+            }
         }
 
         [HarmonyTranspiler]
