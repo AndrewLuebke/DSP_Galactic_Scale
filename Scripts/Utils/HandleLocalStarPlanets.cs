@@ -193,21 +193,39 @@ namespace GalacticScale
         {
             var stars = GameMain.galaxy?.stars;
             if (stars == null) return null;
+
+            // Hysteresis: while still in approach of a body we already own, never yield.
+            if (closestStar?.planets != null)
+                for (var j = 0; j < closestStar.planetCount; j++)
+                {
+                    var planet = closestStar.planets[j];
+                    if (planet != null && DistanceTo(planet) < ApproachDistance(planet))
+                        return null;
+                }
+
+            PlanetData best = null;
+            var bestDist = double.MaxValue;
             for (var i = 0; i < GameMain.galaxy.starCount; i++)
             {
                 var star = stars[i];
                 if (star == null || star == closestStar || star.planetCount == 0) continue;
-                if (GetGSStar(star).Decorative) continue;
+                var gs = GetGSStar(star);
+                if (gs == null || gs.Decorative) continue;
                 if (DistanceTo(star) >= TransitionDistance(star)) continue;
                 for (var j = 0; j < star.planetCount; j++)
                 {
                     var planet = star.planets[j];
                     if (planet == null) continue;
-                    if (DistanceTo(planet) < ApproachDistance(planet)) return planet;
+                    var d = DistanceTo(planet);
+                    if (d < ApproachDistance(planet) && d < bestDist)
+                    {
+                        best = planet;
+                        bestDist = d;
+                    }
                 }
             }
 
-            return null;
+            return best;
         }
 
         private static void EnsurePlanetStillLocal()
@@ -243,12 +261,14 @@ namespace GalacticScale
             StarData byPlanet = null;
             StarData byCenter = null;
             var bestCenterDist = double.MaxValue;
+            var bestPlanetDist = double.MaxValue;
             for (var i = 0; i < GameMain.galaxy.starCount; i++)
             {
                 var star = GameMain.galaxy.stars[i];
                 if (star.planetCount == 0) continue;
 
-                if (GetGSStar(star).Decorative) continue;
+                var gs = GetGSStar(star);
+                if (gs == null || gs.Decorative) continue;
 
                 var dist = DistanceTo(star);
                 if (dist >= TransitionDistance(star)) continue;
@@ -259,17 +279,17 @@ namespace GalacticScale
                     bestCenterDist = dist;
                 }
 
-                if (byPlanet == null)
-                    for (var j = 0; j < star.planetCount; j++)
+                for (var j = 0; j < star.planetCount; j++)
+                {
+                    var planet = star.planets[j];
+                    if (planet == null) continue;
+                    var pd = DistanceTo(planet);
+                    if (pd < ApproachDistance(planet) && pd < bestPlanetDist)
                     {
-                        var planet = star.planets[j];
-                        if (planet == null) continue;
-                        if (DistanceTo(planet) < ApproachDistance(planet))
-                        {
-                            byPlanet = star;
-                            break;
-                        }
+                        byPlanet = star;
+                        bestPlanetDist = pd;
                     }
+                }
             }
 
             closestStar = byPlanet ?? byCenter;
