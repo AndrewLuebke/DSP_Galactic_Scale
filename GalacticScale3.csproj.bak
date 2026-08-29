@@ -13,7 +13,7 @@
     <PropertyGroup>
         <AssemblyName>GalacticScale</AssemblyName>
         <Description>Galaxy Customization for Dyson Sphere Program</Description>
-        <Version>2.78.5</Version>
+        <Version>2.78.6</Version>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>9.0</LangVersion>
         <OutDir>bin/$(Configuration)</OutDir>
@@ -54,7 +54,8 @@
             <HintPath>Package\GSUI.dll</HintPath>
         </Reference>
         <Reference Include="UnityEngine.UI">
-          <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Dyson Sphere Program\DSPGAME_Data\Managed\UnityEngine.UI.dll</HintPath>
+          <HintPath Condition="Exists('$(GameDir)\DSPGAME_Data\Managed\UnityEngine.UI.dll')">$(GameDir)\DSPGAME_Data\Managed\UnityEngine.UI.dll</HintPath>
+          <HintPath Condition="!Exists('$(GameDir)\DSPGAME_Data\Managed\UnityEngine.UI.dll')">$(MSBuildThisFileDirectory)..\CommonAPI\Libs\UnityEngine.UI.dll</HintPath>
         </Reference>
     </ItemGroup>
     <Target Name="CheckDevEnv" BeforeTargets="PrepareForBuild">

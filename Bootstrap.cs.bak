@@ -15,7 +15,7 @@ namespace GalacticScale
     }
 
  
-    [BepInPlugin("dsp.galactic-scale.2", "Galactic Scale 2 Plug-In", "2.78.5")]
+    [BepInPlugin("dsp.galactic-scale.2", "Galactic Scale 2 Plug-In", "2.78.6")]
     [BepInDependency("space.customizing.console", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("dsp.nebula-multiplayer-api", BepInDependency.DependencyFlags.SoftDependency)]
     public class Bootstrap : BaseUnityPlugin
@@ -90,7 +90,10 @@ namespace GalacticScale
                 harmony.PatchAll(typeof(PatchOnDFRelayComponent));
                 harmony.PatchAll(typeof(PatchOnDFTinderComponent));
                 harmony.PatchAll(typeof(PatchOnDigitalSystem));
-                // harmony.PatchAll(typeof(PatchOnDysonSphere));
+                harmony.PatchAll(typeof(PatchOnDysonSphere));
+                harmony.PatchAll(typeof(PatchOnDysonSwarm));
+                harmony.PatchAll(typeof(PatchOnDysonSphereRocket));
+                harmony.PatchAll(typeof(PatchOnUIDEDialogues));
                 harmony.PatchAll(typeof(PatchOnEnemyDFGroundSystem));
                 harmony.PatchAll(typeof(PatchOnEnemyDFHiveSystem));
                 harmony.PatchAll(typeof(PatchOnFactoryModel));
