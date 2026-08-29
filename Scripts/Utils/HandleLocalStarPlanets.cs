@@ -307,7 +307,11 @@ namespace GalacticScale
         /// </summary>
         private static double ApproachDistance(PlanetData planet)
         {
-            var wide = planet.realRadius * 4.0 + 20000.0;
+            // 80000 (2 AU) floor: field-tested — a 20000 floor made the handoff (and with it
+            // the planet popping into existence) happen at ~0.5 AU, which reads as still-broken
+            // to a player flying at an invisible planet. 2 AU triggers before the approach
+            // feels wrong.
+            var wide = planet.realRadius * 4.0 + 80000.0;
             var transition = TransitionDistance(planet);
             return wide > transition ? wide : transition;
         }
