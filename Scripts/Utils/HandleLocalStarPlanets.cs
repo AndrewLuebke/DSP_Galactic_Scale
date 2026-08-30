@@ -161,10 +161,71 @@ namespace GalacticScale
         private static void EnsureStarStillLocal()
         {
             if (closestStar.loaded) LogStatus($"Ensure {closestStar.name} still local...");
-            if (!(DistanceTo(closestStar) > TransitionDistance(closestStar))) return;
-            Log($"Leaving star {closestStar.name} as its too far away {DistanceTo(closestStar) / 40000}AU < {TransitionDistance(closestStar) / 40000}AU");
-            GameMain.data.LeaveStar();
-            closestStar = null;
+            if (DistanceTo(closestStar) > TransitionDistance(closestStar))
+            {
+                Log($"Leaving star {closestStar.name} as its too far away {DistanceTo(closestStar) / 40000}AU < {TransitionDistance(closestStar) / 40000}AU");
+                GameMain.data.LeaveStar();
+                closestStar = null;
+                return;
+            }
+
+            // Overlapping systems (#294): GS2 orbits can be wide enough that a planet of a
+            // NEIGHBORING star is right here while the current star's own bodies are dozens of
+            // AU away. The current star's transition sphere still contains the player, so the
+            // exit check above never fires and the neighbor's planet can never load (invisible,
+            // no collider, factory never mounts). Yield only on decisive contact: the player is
+            // inside the transition sphere of a planet belonging to another eligible star.
+            var foreign = TouchedPlanetOfOtherStar();
+            if (foreign != null)
+            {
+                Log($"Leaving star {closestStar.name}: in contact with {foreign.name} of {foreign.star.name} (overlapping systems)");
+                GameMain.data.LeaveStar();
+                closestStar = null;
+            }
+        }
+
+        /// <summary>
+        ///     Returns a planet of a different, locality-eligible star whose transition sphere
+        ///     contains the player, or null. Only stars whose own system sphere contains the
+        ///     player are examined, so in non-overlapping space this is a single distance check.
+        /// </summary>
+        private static PlanetData TouchedPlanetOfOtherStar()
+        {
+            var stars = GameMain.galaxy?.stars;
+            if (stars == null) return null;
+
+            // Hysteresis: while still in approach of a body we already own, never yield.
+            if (closestStar?.planets != null)
+                for (var j = 0; j < closestStar.planetCount; j++)
+                {
+                    var planet = closestStar.planets[j];
+                    if (planet != null && DistanceTo(planet) < ApproachDistance(planet))
+                        return null;
+                }
+
+            PlanetData best = null;
+            var bestDist = double.MaxValue;
+            for (var i = 0; i < GameMain.galaxy.starCount; i++)
+            {
+                var star = stars[i];
+                if (star == null || star == closestStar || star.planetCount == 0) continue;
+                var gs = GetGSStar(star);
+                if (gs == null || gs.Decorative) continue;
+                if (DistanceTo(star) >= TransitionDistance(star)) continue;
+                for (var j = 0; j < star.planetCount; j++)
+                {
+                    var planet = star.planets[j];
+                    if (planet == null) continue;
+                    var d = DistanceTo(planet);
+                    if (d < ApproachDistance(planet) && d < bestDist)
+                    {
+                        best = planet;
+                        bestDist = d;
+                    }
+                }
+            }
+
+            return best;
         }
 
         private static void EnsurePlanetStillLocal()
@@ -191,23 +252,68 @@ namespace GalacticScale
 
         private static void SearchStar()
         {
-            for (var i = 0; closestStar == null && i < GameMain.galaxy.starCount; i++)
+            // Overlapping systems (#294): several stars' transition spheres can contain the
+            // player at once. The old first-index-wins pick could hand locality to a star whose
+            // bodies are dozens of AU away while the player is parked ON a planet of another.
+            // Pick, among containing stars: first any star with a planet whose transition sphere
+            // contains the player (we are AT one of its bodies), else the star with the nearest
+            // center. With a single candidate this is exactly the old behavior.
+            StarData byPlanet = null;
+            StarData byCenter = null;
+            var bestCenterDist = double.MaxValue;
+            var bestPlanetDist = double.MaxValue;
+            for (var i = 0; i < GameMain.galaxy.starCount; i++)
             {
                 var star = GameMain.galaxy.stars[i];
                 if (star.planetCount == 0) continue;
 
-                if (GetGSStar(star).Decorative) continue;
+                var gs = GetGSStar(star);
+                if (gs == null || gs.Decorative) continue;
 
-                if (DistanceTo(star) < TransitionDistance(star))
+                var dist = DistanceTo(star);
+                if (dist >= TransitionDistance(star)) continue;
+
+                if (dist < bestCenterDist)
                 {
-                    Log($"Found Star {star.name}");
-                    closestStar = star;
+                    byCenter = star;
+                    bestCenterDist = dist;
                 }
 
-                if (!GameMain.isRunning || closestStar == null || closestStar.loaded) continue;
-                closestStar.Load();
-                return;
+                for (var j = 0; j < star.planetCount; j++)
+                {
+                    var planet = star.planets[j];
+                    if (planet == null) continue;
+                    var pd = DistanceTo(planet);
+                    if (pd < ApproachDistance(planet) && pd < bestPlanetDist)
+                    {
+                        byPlanet = star;
+                        bestPlanetDist = pd;
+                    }
+                }
             }
+
+            closestStar = byPlanet ?? byCenter;
+            if (closestStar == null) return;
+            Log($"Found Star {closestStar.name}" + (byPlanet != null ? " (owns the planet at hand)" : ""));
+
+            if (GameMain.isRunning && !closestStar.loaded) closestStar.Load();
+        }
+
+        /// <summary>
+        ///     Wide sphere used to decide that the player is meaningfully AT a foreign star's
+        ///     planet. Much larger than the landing transition sphere so the ownership switch
+        ///     (and with it rendering/collision of the planet) happens on approach instead of
+        ///     after blindly hitting an invisible surface.
+        /// </summary>
+        private static double ApproachDistance(PlanetData planet)
+        {
+            // 80000 (2 AU) floor: field-tested — a 20000 floor made the handoff (and with it
+            // the planet popping into existence) happen at ~0.5 AU, which reads as still-broken
+            // to a player flying at an invisible planet. 2 AU triggers before the approach
+            // feels wrong.
+            var wide = planet.realRadius * 4.0 + 80000.0;
+            var transition = TransitionDistance(planet);
+            return wide > transition ? wide : transition;
         }
 
         public static double DistanceTo(PlanetData planet)
